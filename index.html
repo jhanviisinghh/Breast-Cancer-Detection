@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Breast Ultrasound Prediction</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="max-w-4xl mx-auto p-6">
+        <header class="text-center mb-12">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">Breast Ultrasound Analysis</h1>
+            <p class="text-gray-600">Upload an ultrasound image for automated analysis</p>
+        </header>
+
+        <div class="bg-white rounded-lg shadow-lg p-8 mb-8">
+            <div class="mb-8">
+                <div class="flex items-center justify-center w-full">
+                    <label class="flex flex-col w-full h-48 border-4 border-dashed border-gray-200 hover:border-blue-500 hover:bg-gray-50 
+                     rounded-lg cursor-pointer transition-all">
+                        <div class="flex flex-col items-center justify-center pt-7">
+                            <svg class="w-12 h-12 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                            </svg>
+                            <p class="text-gray-500 text-center mb-2">
+                                <span class="font-semibold">Click to upload</span> or drag and drop
+                            </p>
+                            <p class="text-xs text-gray-400">Supported formats: PNG, JPG, JPEG</p>
+                        </div>
+                        <input type="file" id="fileInput" accept="image/*" class="hidden">
+                    </label>
+                </div>
+                <div id="fileInfo" class="mt-4 text-center text-sm text-gray-500"></div>
+            </div>
+
+            <div class="flex justify-center">
+                <button onclick="predictMasked()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-lg 
+                shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed" id="predictBtn" disabled>
+                    Analyze Image
+                </button>
+            </div>
+        </div>
+
+        <div id="resultSection" class="bg-white rounded-lg shadow-lg p-8 hidden">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Analysis Results</h2>
+            <div class="space-y-4">
+                <div id="result" class="p-4 bg-gray-50 rounded-lg"></div>
+                <div id="confidenceBar" class="hidden">
+                    <div class="h-4 w-full bg-gray-200 rounded-full">
+                        <div class="h-4 bg-blue-600 rounded-full transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const predictBtn = document.getElementById('predictBtn');
+        const fileInfo = document.getElementById('fileInfo');
+        const resultSection = document.getElementById('resultSection');
+
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                fileInfo.textContent = `Selected file: ${file.name}`;
+                predictBtn.disabled = false;
+            } else {
+                fileInfo.textContent = '';
+                predictBtn.disabled = true;
+            }
+        });
+
+        function predictMasked() {
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+            
+            // Show loading state
+            predictBtn.disabled = true;
+            predictBtn.innerHTML = `
+                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" 
+                viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 
+                    0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Analyzing...
+            `;
+
+            resultSection.classList.add('hidden');
+
+            fetch('http://127.0.0.1:5000/predict_masked', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                const prediction = data.prediction[0].map(prob => (prob * 100).toFixed(1));
+                const classLabel = data.class_label;
+                const maxProb = Math.max(...data.prediction[0]) * 100;
+
+                // Update confidence bar
+                const confidenceBar = document.getElementById('confidenceBar');
+                confidenceBar.classList.remove('hidden');
+                confidenceBar.querySelector('div').style.width = `${maxProb}%`;
+
+                // Format result display
+                document.getElementById('result').innerHTML = `
+                    <div class="space-y-2">
+                        <p class="text-lg font-medium">Predicted Classification: 
+                            <span class="text-blue-600">${classLabel}</span>
+                        </p>
+                        <p class="text-sm text-gray-600">Confidence: ${maxProb.toFixed(1)}%</p>
+                        <div class="text-sm text-gray-500">
+                            <p>Detailed probabilities:</p>
+                            <ul class="list-disc pl-5 mt-1">
+                                ${prediction.map((prob, idx) => 
+                                    `<li>Class ${idx}: ${prob}%</li>`
+                                ).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                `;
+
+                // Reset button and show results
+                predictBtn.disabled = false;
+                predictBtn.innerHTML = 'Analyze Image';
+                resultSection.classList.remove('hidden');
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('result').innerHTML = `
+                    <div class="text-red-600">
+                        An error occurred during analysis. Please try again.
+                    </div>
+                `;
+                predictBtn.disabled = false;
+                predictBtn.innerHTML = 'Analyze Image';
+                resultSection.classList.remove('hidden');
+            });
+        }
+    </script>
+</body>
+</html>
